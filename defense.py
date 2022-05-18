@@ -10,7 +10,7 @@ import scipy.io.wavfile as wav
 from pydub import AudioSegment
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage.morphology import (generate_binary_structure, iterate_structure, binary_erosion)
-from Parameter  import *
+from Parameter import *
 
 plt.rcParams['font.sans-serif'] = 'Times New Roman'
 

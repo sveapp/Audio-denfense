@@ -8,8 +8,6 @@ Time steps: 1000                n/a
 Frequency steps: 250
 Window shape: Gaussian          default window is hanning change to gaussian
 '''
-IDX_FREQ_I = 0
-IDX_TIME_J = 1
 
 '''
 Where 1 sets a diamond morphology which implies that diagonal elements are not considered as neighbors
@@ -37,63 +35,35 @@ matching, but potentially more fingerprints.
 DEFAULT_OVERLAP_RATIO = 0.5
 
 '''
-Degree to which a fingerprint can be paired with its neighbors --higher 
+Degree to which a fingerprint can be paired with its neighbors--higher 
 will cause more fingerprints, but potentially better accuracy.
 '''
 DEFAULT_FAN_VALUE = 15
 
 '''
-Minimum amplitude in spectrogram in order to be considered a peak.
-This can be raised to reduce number of fingerprints, but can negatively
-affect accuracy.
+Minimum amplitude in spectrogram in order to be considered as a peak.
+This can be raised to reduce number of fingerprints, but can also negatively
+affect accuracy. 
 '''
 DEFAULT_AMP_MIN = 10
 
 '''
 Number of cells around an amplitude peak in the spectrogram in order
-for Dejavu to consider it a spectral peak. Higher values mean less
-fingerprints and faster matching, but can potentially affect accuracy.
+to consider it as a spectral peak. Higher values mean less
+fingerprints and faster matching, but potentially affect accuracy.
 '''
 PEAK_NEIGHBORHOOD_SIZE = 20
 
 '''
-Thresholds on how close or far fingerprints can be in time in order
-to be paired as a fingerprint. If your max is too low, higher values of
-DEFAULT_FAN_VALUE may not perform as expected.
-'''
-MIN_HASH_TIME_DELTA = 0
-MAX_HASH_TIME_DELTA = 200
-
-'''
-If True, will sort peaks temporally for fingerprinting;
-not sorting will cut down number of fingerprints, but potentially
-affect performance.
-'''
-PEAK_SORT = False
-
-'''
-Number of bits to throw away from the front of the SHA1 hash in the
-fingerprint calculation. The more you throw away, the less storage, but
-potentially higher collisions and misclassifications when identifying songs.
-'''
-FINGERPRINT_REDUCTION = 20
-
-'''
-Sensitivity value, the higher the  value has a higher sensitivity 
+Sensitivity value, the higher value make a higher sensitivity 
 and vice versa, affecting the choice of threshold value.
 '''
 SENSITIVITY = 0.1
 
 '''
-Since the values are small when calculated using the statistical method, 
-multiplying by a larger value.
-'''
-MAGNIFICATION = 1000
-
-'''
 This parameter is the matrix percentage value used in the 
 calculation of the threshold, which has an impact on the calculation of 
-the threshold and needs to be adjusted appropriately according to the size of the data set.
+the threshold and needs to be adjusted appropriately according to the size of the dataset.
 '''
 MASK_P = 250
 
@@ -108,13 +78,13 @@ Blocking value
 CHUNK_SIZE = 1000
 
 '''
-According to the study of previous experiments, the K_VALUE value was selected as 75.
+According to the study of previous experiments, the K_VALUE value is selected as 75.
 '''
 K_VALUE = 75
 
 '''
-For memory not to overflow, it is wiser to split the batch calculation.
-Adjustment according to physical memory size.
+To avoid memory overflow, it is wiser to split the batch calculation.
+Adjust it according to physical memory size.
 '''
 BATCH = 50
 
