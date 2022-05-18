@@ -10,6 +10,8 @@ import scipy.io.wavfile as wav
 from pydub import AudioSegment
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage.morphology import (generate_binary_structure, iterate_structure, binary_erosion)
+from Parameter  import *
+
 plt.rcParams['font.sans-serif'] = 'Times New Roman'
 
 '''
@@ -18,138 +20,6 @@ mempool = cupy.get_default_memory_pool()
 with cupy.cuda.Device(0):
 mempool.set_limit(size=1024 ** 3 * 12)  # 12G
 '''
-
-'''
-Parameter setting rules：
-View range: 0-8000Hz            Fs=16000
-Window length: 0.005s           NFFT = int(Fs*0.005) = 80
-                                overlap = int(Fs*0.0025) = 40
-Dynamic range: 70dB             n/a
-Time steps: 1000                n/a
-Frequency steps: 250            
-Window shape: Gaussian          default window is hanning change to gaussian
-
-
-'''
-IDX_FREQ_I = 0
-IDX_TIME_J = 1
-'''
-Where 1 sets a diamond morphology which implies that diagonal elements are not considered as neighbors
-And 2 sets a square mask, i.e. all elements are considered neighbors.
-'''
-CONNECTIVITY_MASK = 2
-
-'''
-Sampling rate, related to the Nyquist conditions, which affects 
-the range frequencies we can detect.
-'''
-# DEFAULT_FS = 1600
-DEFAULT_FS = 3200
-
-'''
-Size of the FFT window, affects frequency granularity
-'''
-DEFAULT_WINDOW_SIZE = 4096
-
-'''
-Ratio by which each sequential window overlaps the last and the
-next window. Higher overlap will allow a higher granularity of offset
-matching, but potentially more fingerprints.
-'''
-DEFAULT_OVERLAP_RATIO = 0.5
-
-'''
-Degree to which a fingerprint can be paired with its neighbors --higher 
-will cause more fingerprints, but potentially better accuracy.
-'''
-DEFAULT_FAN_VALUE = 15
-
-'''
-Minimum amplitude in spectrogram in order to be considered a peak.
-This can be raised to reduce number of fingerprints, but can negatively
-affect accuracy.
-'''
-DEFAULT_AMP_MIN = 10
-
-'''
-Number of cells around an amplitude peak in the spectrogram in order
-for Dejavu to consider it a spectral peak. Higher values mean less
-fingerprints and faster matching, but can potentially affect accuracy.
-'''
-PEAK_NEIGHBORHOOD_SIZE = 20
-
-'''
-Thresholds on how close or far fingerprints can be in time in order
-to be paired as a fingerprint. If your max is too low, higher values of
-DEFAULT_FAN_VALUE may not perform as expected.
-'''
-MIN_HASH_TIME_DELTA = 0
-MAX_HASH_TIME_DELTA = 200
-
-'''
-If True, will sort peaks temporally for fingerprinting;
-not sorting will cut down number of fingerprints, but potentially
-affect performance.
-'''
-PEAK_SORT = False
-
-'''
-Number of bits to throw away from the front of the SHA1 hash in the
-fingerprint calculation. The more you throw away, the less storage, but
-potentially higher collisions and misclassifications when identifying songs.
-'''
-FINGERPRINT_REDUCTION = 20
-
-'''
-Sensitivity value, the higher the  value has a higher sensitivity 
-and vice versa, affecting the choice of threshold value.
-'''
-SENSITIVITY = 0.1
-
-'''
-Since the values are small when calculated using the statistical method, 
-multiplying by a larger value.
-'''
-MAGNIFICATION = 1000
-
-'''
-This parameter is the matrix percentage value used in the 
-calculation of the threshold, which has an impact on the calculation of 
-the threshold and needs to be adjusted appropriately according to the size of the data set.
-'''
-MASK_P = 250
-
-'''
-Whether to check the drawing
-'''
-PLOTS = True
-
-'''
-Blocking value
-'''
-CHUNK_SIZE = 1000
-
-'''
-According to the study of previous experiments, the K_VALUE value was selected as 75.
-'''
-K_VALUE = 75
-
-'''
-For memory not to overflow, it is wiser to split the batch calculation.
-Adjustment according to physical memory size.
-'''
-BATCH = 500
-
-'''
-Length of sliding window.
-'''
-SLIDE_WINDOW_LENGTH = int(K_VALUE * 0.1)
-
-'''
-Epsilon.
-'''
-EPSILON = 1e-10
-
 
 def Fingerprint(channel_samples, Fs=DEFAULT_FS, wsize=DEFAULT_WINDOW_SIZE, wratio=DEFAULT_OVERLAP_RATIO,
                 fan_value=DEFAULT_FAN_VALUE, amp_min=DEFAULT_AMP_MIN, plots=PLOTS):
@@ -284,53 +154,60 @@ class Defense(object):
         self.chunk_size = chunk_size
         self.history = []  # Tracks number of queries (t) when attack was detected
         self.history_by_attack = []
-        self.knn_sim = []
+        self.sim = []
 
     def Attack_query(self, queries):
 
         for query in queries:
             query_fingerprint_mask = Fingerprint(query, Fs=DEFAULT_FS)
             print("query fingerprint_mask peak numbers :", np.sum(query_fingerprint_mask == 0.5))
-            self.Query_detected(query_fingerprint_mask)
+            self.Query_into_buffer(query_fingerprint_mask)
+        if len(self.buffer) <= self.K and len(self.buffer) > 0:
+            last_fingerprint = self.buffer.pop(-1)
+            self.num_queries -= 1
+            self.Query_detected(last_fingerprint)
 
-    def Query_detected(self, query_fingerprint_mask):
+    def Query_into_buffer(self, query_fingerprint_mask):
         query_mask = query_fingerprint_mask
         query_mask = np.reshape(query_mask, (query_mask.shape[1], query_mask.shape[0]))
         if len(self.memory) == 0 and len(self.buffer) < self.K:
             self.buffer.append(query_mask)
             self.num_queries += 1
         else:
-            k = self.K
-            all_similar = []
-            size = query_mask.shape[0] * query_mask.shape[1]
-            if len(self.buffer) > 0:  # self.buffer
-                queries_mask = np.stack(self.buffer, axis=0)  # Compressed  buffer into the stack
-                LAP_similar = Cos_similar(queries_mask, query_mask)
-                LAP_similar = NormMinMax(LAP_similar)
-                all_similar.append(LAP_similar)
-            for queries_mask in self.memory:
-                LAP_similar = Cos_similar(queries_mask, query_mask)
-                LAP_similar = NormMinMax(LAP_similar)
-                all_similar.append(LAP_similar)
+            self.Query_detected(query_mask)
 
-            similar = np.concatenate(all_similar)
-            w = W_slide_variation(similar)
-            k_avg_sim = np.sum(similar * w)
-            k_avg_sim = np.around(k_avg_sim, 6)
+    def Query_detected(self, query_mask):
+        k = self.K
+        all_similar = []
+        size = query_mask.shape[0] * query_mask.shape[1]
+        if len(self.buffer) > 0:  # self.buffer
+            queries_mask = np.stack(self.buffer, axis=0)  # Compressed  buffer into the stack
+            LAP_similar = Cos_similar(queries_mask, query_mask)
+            LAP_similar = NormMinMax(LAP_similar)
+            all_similar.append(LAP_similar)
+        for queries_mask in self.memory:
+            LAP_similar = Cos_similar(queries_mask, query_mask)
+            LAP_similar = NormMinMax(LAP_similar)
+            all_similar.append(LAP_similar)
 
-            self.buffer.append(query_mask)
-            self.num_queries += 1
+        similar = np.concatenate(all_similar)
+        w = W_slide_variation(similar)
+        avg_sim = np.sum(similar * w)
+        avg_sim = np.around(avg_sim, 6)
 
-            if len(self.buffer) >= self.chunk_size:
-                self.memory.append(np.stack(self.buffer, axis=0))
-                self.buffer = []
+        self.buffer.append(query_mask)
+        self.num_queries += 1
 
-            print("k_avg_sim: " + "%.6f" % k_avg_sim)
-            is_attack = k_avg_sim > self.threshold
-            if is_attack:
-                self.history.append(self.num_queries)
-                self.knn_sim.append(k_avg_sim)
-                self.Clear_memory()
+        if len(self.buffer) >= self.chunk_size:
+            self.memory.append(np.stack(self.buffer, axis=0))
+            self.buffer = []
+
+        print("avg_sim: " + "%.6f" % avg_sim)
+        is_attack = avg_sim > self.threshold
+        if is_attack:
+            self.history.append(self.num_queries)
+            self.sim.append(avg_sim)
+            self.Clear_memory()
 
     def Clear_memory(self):
         self.buffer = []
@@ -339,6 +216,7 @@ class Defense(object):
     def get_detections(self):
         history = self.history
         epochs = []
+        epochs.append(history[0])
         for i in range(len(history) - 1):
             epochs.append(history[i + 1] - history[i])
         return epochs
@@ -376,10 +254,10 @@ def Calculate_thresholds(sets, K, P=MASK_P, up_to_K=False):
     THRESHOLDS = []
     K_S = []
     for k in range(start, K + 1):
-        sim_to_k_neighbors = similar_matrix[:k + 1]
-        avg_sim_to_k_neighbors = sim_to_k_neighbors.mean(axis=-1)
+        sim_to_neighbors = similar_matrix[:k + 1]
+        avg_sim_to_neighbors = sim_to_neighbors.mean(axis=-1)
 
-        threshold = np.percentile(avg_sim_to_k_neighbors, SENSITIVITY)
+        threshold = np.percentile(avg_sim_to_neighbors, SENSITIVITY)
 
         K_S.append(k)
         THRESHOLDS.append(threshold)
@@ -419,10 +297,10 @@ def Calculate_cos_similar_thresholds(sets, K, P=MASK_P, up_to_K=False):  # sets 
     THRESHOLDS = []
     K_S = []
     for k in range(start, K + 1):
-        sim_to_k_neighbors = similar_matrix[:k + 1]
-        avg_sim_to_k_neighbors = sim_to_k_neighbors.mean(axis=-1)
+        sim_to_neighbors = similar_matrix[:k + 1]
+        avg_sim_to_neighbors = sim_to_neighbors.mean(axis=-1)
 
-        threshold = np.percentile(avg_sim_to_k_neighbors, SENSITIVITY)
+        threshold = np.percentile(avg_sim_to_neighbors, SENSITIVITY)
 
         K_S.append(k)
         THRESHOLDS.append(threshold)
@@ -467,7 +345,9 @@ def Cos_similar(mat, v):
         sil_all.append(sil_list)
     sil_all = np.asarray(sil_all, dtype=object)
     sil_all = np.concatenate(sil_all)
+    # print("sil_all :", sil_all.shape)
     sil_all = NormMinMax(sil_all, 0, 1)
+
     return sil_all
 
 
@@ -517,7 +397,7 @@ def np_SNR(origianl_waveform_path, target_waveform_path):
          :param origianl_waveform_path
          :param target_waveform_path
          :return:
-      """
+    """
     _, origianl_waveform = wav.read(origianl_waveform_path)
     _, target_waveform = wav.read(target_waveform_path)
     epsilon = EPSILON
@@ -647,7 +527,7 @@ def File_Process(data, length):
         new_data.append(new_line)
     new_data = np.array(new_data)
     num = new_data.shape[0]
-    print("sets numbers is :", num)
+    print("query numbers is :", num)
     print("data shape :", new_data.shape)
     return new_data
 
@@ -656,38 +536,38 @@ if __name__ == '__main__':
     """
     Please add the path to below code according to the actual path of AEs.
     """
-    suspicious_queries, length, num = Read_File("audio-path")
+    AEs, length, num = Read_File("C:/Users/Administrator/Desktop/Audio-denfense/test")
     """
     CS-AEs-path
     """
-    # suspicious_queries, length, num = Read_File("CS-AEs-audio-path")
+    # AEs, length, num = Read_File("CS-AEs-audio-path")
     """
     DW-AEs-path
     """
-    # suspicious_queries, length, num = Read_File("DW-AEs-audio-path")
+    # AEs, length, num = Read_File("DW-AEs-audio-path")
     """
     IRTA-AEs-path
     """
-    # suspicious_queries, length, num = Read_File("IRTA-AEs-audio-path")
+    # AEs, length, num = Read_File("IRTA-AEs-audio-path")
     """
     DS-AEs-path
     """
-    # suspicious_queries, length, num = Read_File(" DS-AEs-audio-path")
+    # AEs, length, num = Read_File(" DS-AEs-audio-path")
 
-    suspicious_queries = File_Process(suspicious_queries, length)
-
+    AEs = File_Process(AEs, length)
+    AEs = AEs + np.random.randint(-800, 800, (1300, AEs.shape[1]))
     """
     Checking the p_fake impact on detection.
     # p = ?  # Setting fake query ratios
     # p_fake_audio, _, _ = Read_File("audio-path")
     # p_fake_audio = File_Process(p_fake_audio, length)
-    # suspicious_queries = p_fake(suspicious_queries, p_fake_audio, fake=p)
+    # AEs = p_fake(AEs, p_fake_audio, fake=p)
     """
 
     """
     Checking the noise impact on the detection
     # SNR = ? # Setting the S/N ratio, adding noise, according to the S/N ratio.
-    # suspicious_queries = Gnoisegen(suspicious_queries, snr=SNR)
+    # AEs = Gnoisegen(AEs, snr=SNR)
     """
 
     """
@@ -695,7 +575,7 @@ if __name__ == '__main__':
     Now,you need specify the 'sets' path,you can download the dataset from 
     'https://drive.google.com/file/d/1wPVK9S8TyB0aaXqXFKEebYKuKshmBvDc/view?usp=sharing'
     # sets,length,_ = Read_File("sets-audio-path")
-    # sets = File_Process(suspicious_queries, length)
+    # sets = File_Process(sets, length)
     
     When you selected Threshold is true,you need setting 'th'.We have calculated the threshold value in advance,
     so you can opt out of the calculation.
@@ -704,11 +584,13 @@ if __name__ == '__main__':
     'th=b' means select dialogue as carry.
 
     """
-    detector = Defense(K=K_VALUE, sets=None, threshold=False, th='b')
+    # sets,length,_ = Read_File("sets-audio-path")
+    # sets = File_Process(sets, length)
+    detector = Defense(K=K_VALUE, sets=None, threshold=True, th='m')
 
     detector.Clear_memory()
-    detector.Attack_query(suspicious_queries)
+    detector.Attack_query(AEs)
     detections = detector.get_detections()
-    print("suspicious_queries Num detections:", len(detections))
-    print("suspicious_queries Queries per detection:", detections)
-    print("suspicious_queries i-th query that caused detection:", detector.history)
+    print("AEs's number of detections:", len(detector.history))
+    print("AEs's cache amount per detection:", detections)
+    print("AEs's which query leads to detection:", detector.history)
