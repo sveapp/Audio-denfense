@@ -83,7 +83,8 @@ def Get_2D_peaks(arr2D, plot=PLOTS, amp_min=DEFAULT_AMP_MIN):
     :return:
     """
     struct = generate_binary_structure(2, CONNECTIVITY_MASK)
-    neighborhood = iterate_structure(struct, PEAK_NEIGHBORHOOD_SIZE)
+    # neighborhood = iterate_structure(struct, PEAK_NEIGHBORHOOD_SIZE)
+    neighborhood = np.ones((PEAK_NEIGHBORHOOD_SIZE * 2 + 1, PEAK_NEIGHBORHOOD_SIZE * 2 + 1), dtype=bool)
     local_max = maximum_filter(arr2D, footprint=neighborhood) == arr2D
 
     background = (arr2D == 0)
@@ -131,7 +132,7 @@ def NormMinMax(arr, min=0, max=1):
 
 
 class Defense(object):
-    def __init__(self, K, chunk_size=CHUNK_SIZE, threshold=False, th='m', sets=None, th_m=0.313711, th_b=0.207398):
+    def __init__(self, K, chunk_size=CHUNK_SIZE, k_value=K_VALUE, threshold=False, th='m', sets=None, th_m=0.313711, th_b=0.207398):
 
         self.K = K
         self.threshold = threshold
@@ -152,6 +153,7 @@ class Defense(object):
         self.buffer = []
         self.memory = []
         self.chunk_size = chunk_size
+        self.k_value = k_value
         self.history = []  # Tracks number of queries (t) when attack was detected
         self.history_by_attack = []
         self.sim = []
@@ -221,6 +223,10 @@ class Defense(object):
             epochs.append(history[i + 1] - history[i])
         return epochs
 
+    def get_num_detections(self):
+        history = self.history
+        num_detections = history[-1] / self.k_value
+        return num_detections
 
 def Calculate_thresholds(sets, K, P=MASK_P, up_to_K=False):
     """
@@ -536,7 +542,7 @@ if __name__ == '__main__':
     """
     Please add the path to below code according to the actual path of AEs.
     """
-    AEs, length, num = Read_File("C:/Users/Administrator/Desktop/Audio-denfense/test")
+    AEs, length, num = Read_File("/home/data/test")
     """
     CS-AEs-path
     """
@@ -591,6 +597,7 @@ if __name__ == '__main__':
     detector.Clear_memory()
     detector.Attack_query(AEs)
     detections = detector.get_detections()
-    print("AEs's number of detections:", len(detector.history))
+    num_detections = detector.get_num_detections()
+    print("AEs's number of detections: %.2f" % num_detections)
     print("AEs's cache amount per detection:", detections)
     print("AEs's which query leads to detection:", detector.history)
